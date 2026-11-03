@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="《深空当铺》净水器全能计算器：基于 MachinePurifier 底层公式，实时推算单晚最大净水量、目标纯度与杂质残留。" />
+  <meta name="keywords" content="深空当铺,净水器,计算器,纯水,优质水,Deep Space Pawn" />
+  <title>深空当铺 · 净水器核心计算器</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💧</text></svg>" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-4 md:p-6 select-none">
+  <div class="max-w-5xl mx-auto space-y-5">
+
+    <!-- 顶部标题栏 -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2.5">
+          <span class="px-2.5 py-1 rounded-md text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)]">反编译源码级精度</span>
+          <h1 class="text-xl font-bold tracking-tight text-[var(--foreground)]">《深空当铺》净水器全能计算器</h1>
+        </div>
+        <p class="text-sm text-[var(--muted-foreground)] mt-1">
+          基于 <code class="px-1.5 py-0.5 rounded bg-[var(--secondary)] text-[var(--foreground)] text-xs">MachinePurifier</code> 底层公式构建 · 实时推算单晚最大净水量、目标纯度与杂质残留
+        </p>
+      </div>
+      <div>
+        <button onclick="resetDefault()" class="preset-btn px-3.5 py-1.5 rounded-lg text-xs font-medium bg-[var(--secondary)] text-[var(--foreground)] border border-[var(--border)] hover:opacity-90">
+          重置默认参数
+        </button>
+      </div>
+    </div>
+
+    <!-- 主体两栏网格 -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+      <!-- 左侧：参数输入面板 (5列) -->
+      <div class="lg:col-span-5 space-y-5">
+
+        <!-- 1. 机器模组参数 -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <h2 class="text-base font-semibold flex items-center gap-2">
+              <span>⚙️</span> 机器与芯片参数
+            </h2>
+            <span id="powerBadge" class="text-xs px-2.5 py-1 rounded-full bg-[var(--secondary)] text-[var(--foreground)] font-medium">
+              耗电: 4 / 天
+            </span>
+          </div>
+
+          <!-- 性能加成 -->
+          <div class="space-y-1.5">
+            <div class="flex justify-between items-center">
+              <label class="text-sm font-medium">性能加成 (Performance)</label>
+              <div class="flex items-center gap-1.5">
+                <input id="perfInput" type="number" value="0" step="1" min="-100" max="1000"
+                  class="w-20 text-right px-2.5 py-1 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  oninput="syncFromInput('perf')" />
+                <span class="text-sm text-[var(--muted-foreground)]">%</span>
+              </div>
+            </div>
+            <input id="perfRange" type="range" min="-80" max="400" step="1" value="0" class="w-full cursor-pointer"
+              oninput="syncFromRange('perf')" />
+            <div class="flex justify-between text-xs text-[var(--muted-foreground)]">
+              <span>决定每晚清理杂质的额度倍率</span>
+              <span id="perfEffectText" class="font-medium text-[var(--foreground)]">清理效率 +0%</span>
+            </div>
+          </div>
+
+          <!-- 质量加成 (决定纯度上限) -->
+          <div class="space-y-2 pt-2 border-t border-[var(--border)]">
+            <div class="flex justify-between items-center">
+              <label class="text-sm font-medium">质量加成 (Quality)</label>
+              <div class="flex items-center gap-1.5">
+                <input id="qualInput" type="number" value="0" step="1" min="-100" max="500"
+                  class="w-20 text-right px-2.5 py-1 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  oninput="syncFromInput('qual')" />
+                <span class="text-sm text-[var(--muted-foreground)]">%</span>
+              </div>
+            </div>
+            <input id="qualRange" type="range" min="0" max="200" step="1" value="0" class="w-full cursor-pointer"
+              oninput="syncFromRange('qual')" />
+
+            <!-- 质量挡位快捷按钮 -->
+            <div class="grid grid-cols-4 gap-1.5 pt-0.5">
+              <button onclick="setQuality(0)" id="qBtn0" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">0%</div>
+                <div class="text-[var(--muted-foreground)]">99% 优质水</div>
+              </button>
+              <button onclick="setQuality(15)" id="qBtn15" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">+15%</div>
+                <div class="text-[var(--muted-foreground)]">99.15%</div>
+              </button>
+              <button onclick="setQuality(25)" id="qBtn25" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">+25%</div>
+                <div class="text-[var(--muted-foreground)]">99.35%</div>
+              </button>
+              <button onclick="setQuality(50)" id="qBtn50" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">+50%</div>
+                <div class="text-[var(--muted-foreground)]">99.65%</div>
+              </button>
+              <button onclick="setQuality(75)" id="qBtn75" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">+75%</div>
+                <div class="text-[var(--muted-foreground)]">99.80%</div>
+              </button>
+              <button onclick="setQuality(100)" id="qBtn100" class="preset-btn col-span-2 px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">+100% (纯水门槛)</div>
+                <div class="text-[var(--muted-foreground)]">上限 99.90% 纯水</div>
+              </button>
+              <button onclick="setQuality(200)" id="qBtn200" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">+200%</div>
+                <div class="text-[var(--muted-foreground)]">100% 零杂质</div>
+              </button>
+            </div>
+            <div class="flex justify-between text-xs text-[var(--muted-foreground)] pt-0.5">
+              <span>机器当前解锁纯度上限：</span>
+              <span id="capDisplay" class="font-bold text-[var(--foreground)]">99.00% (优质水)</span>
+            </div>
+          </div>
+
+          <!-- 效率加成 (可选，算耗电) -->
+          <div class="space-y-1.5 pt-2 border-t border-[var(--border)]">
+            <div class="flex justify-between items-center">
+              <label class="text-xs text-[var(--muted-foreground)]">效率加成 (Efficiency · 仅影响耗电)</label>
+              <div class="flex items-center gap-1.5">
+                <input id="effInput" type="number" value="0" step="1" min="-500" max="500"
+                  class="w-16 text-right px-2 py-0.5 rounded bg-[var(--background)] border border-[var(--border)] text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  oninput="calculateAll()" />
+                <span class="text-xs text-[var(--muted-foreground)]">%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 水源与目标参数 -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <h2 class="text-base font-semibold flex items-center gap-2">
+              <span>💧</span> 水源与目标设定
+            </h2>
+            <span id="inputGradeBadge" class="text-xs px-2.5 py-1 rounded-full bg-[var(--secondary)] text-[var(--foreground)] font-semibold">
+              当前: 基础水 (Base)
+            </span>
+          </div>
+
+          <!-- 输入水质纯度 (仅保留滑动条与数值输入) -->
+          <div class="space-y-2">
+            <div class="flex justify-between items-center">
+              <label class="text-sm font-medium">输入水质纯度 (%)</label>
+              <div class="flex items-center gap-1.5">
+                <input id="purityInput" type="number" value="98.00" step="0.01" min="1" max="99.99"
+                  class="w-24 text-right px-2.5 py-1 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  oninput="syncFromInput('purity')" />
+                <span class="text-sm text-[var(--muted-foreground)]">%</span>
+              </div>
+            </div>
+            <input id="purityRange" type="range" min="50" max="99.95" step="0.01" value="98.00" class="w-full cursor-pointer"
+              oninput="syncFromRange('purity')" />
+            <div class="flex justify-between text-xs text-[var(--muted-foreground)]">
+              <span id="contaminantPctText">初始杂质占比: 2.00%</span>
+              <span id="dirtBonusText" class="font-medium text-[var(--foreground)]">污秽系数: 1.00x | 总倍率: 1.250x</span>
+            </div>
+          </div>
+
+          <!-- 输入水量 (保留滑动条 + 4个标准容器) -->
+          <div class="space-y-2 pt-2 border-t border-[var(--border)]">
+            <div class="flex justify-between items-center">
+              <label class="text-sm font-medium">输入容器总水量 (升 / L)</label>
+              <div class="flex items-center gap-1.5">
+                <input id="volInput" type="number" value="10" step="0.1" min="0.1" max="100"
+                  class="w-24 text-right px-2.5 py-1 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  oninput="syncFromInput('vol')" />
+                <span class="text-sm text-[var(--muted-foreground)]">L</span>
+              </div>
+            </div>
+            <input id="volRange" type="range" min="0.5" max="50" step="0.1" value="10" class="w-full cursor-pointer"
+              oninput="syncFromRange('vol')" />
+            <!-- 4个指定容器容量快捷选择 -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-0.5">
+              <button onclick="setVolume(3)" id="vBtn3" class="preset-btn px-2 py-1.5 rounded-lg text-xs bg-[var(--secondary)] border border-[var(--border)] text-center">
+                <div class="font-semibold">3L</div>
+                <div class="text-[var(--muted-foreground)]">水罐</div>
+              </button>
+              <button onclick="setVolume(5)" id="vBtn5" class="preset-btn px-2 py-1.5 rounded-lg text-xs bg-[var(--secondary)] border border-[var(--border)] text-center">
+                <div class="font-semibold">5L</div>
+                <div class="text-[var(--muted-foreground)]">水桶</div>
+              </button>
+              <button onclick="setVolume(20)" id="vBtn20" class="preset-btn px-2 py-1.5 rounded-lg text-xs bg-[var(--secondary)] border border-[var(--border)] text-center">
+                <div class="font-semibold">20L</div>
+                <div class="text-[var(--muted-foreground)]">储水罐</div>
+              </button>
+              <button onclick="setVolume(50)" id="vBtn50" class="preset-btn px-2 py-1.5 rounded-lg text-xs bg-[var(--secondary)] border border-[var(--border)] text-center">
+                <div class="font-semibold">50L</div>
+                <div class="text-[var(--muted-foreground)]">强化储水罐</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- 目标水质设定 -->
+          <div class="space-y-2 pt-2 border-t border-[var(--border)]">
+            <div class="flex justify-between items-center">
+              <label class="text-sm font-medium">目标水质 (Target)</label>
+              <div class="flex items-center gap-1.5">
+                <input id="targetInput" type="number" value="99.00" step="0.05" min="90" max="100"
+                  placeholder="留空按上限"
+                  class="w-24 text-right px-2.5 py-1 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  oninput="calculateAll()" />
+                <span class="text-sm text-[var(--muted-foreground)]">%</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-4 gap-1.5">
+              <button onclick="setTarget(98.0)" id="tBtn98" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">基础水</div>
+                <div class="text-[var(--muted-foreground)]">98.0%</div>
+              </button>
+              <button onclick="setTarget(99.0)" id="tBtn99" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">优质水</div>
+                <div class="text-[var(--muted-foreground)]">99.0%</div>
+              </button>
+              <button onclick="setTarget(99.9)" id="tBtn999" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">纯水</div>
+                <div class="text-[var(--muted-foreground)]">99.9%</div>
+              </button>
+              <button onclick="setTarget(0)" id="tBtnCap" class="preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center">
+                <div class="font-semibold">无特定目标</div>
+                <div class="text-[var(--muted-foreground)]">按机器上限</div>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 右侧：计算结果看板 (7列) -->
+      <div class="lg:col-span-7 space-y-5">
+
+        <!-- 核心看板 1：反推单晚最大安全水量 -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
+            <div>
+              <h2 class="text-base font-semibold flex items-center gap-2">
+                <span>🎯</span> 场景一：一晚上稳出目标水质的【最大安全水量】
+              </h2>
+              <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+                防止倒入过多水导致明早差一点没质变成优质水/纯水
+              </p>
+            </div>
+            <span id="maxVolStatusBadge" class="text-xs px-2.5 py-1 rounded-full font-semibold bg-[var(--secondary)] text-[var(--foreground)] self-start sm:self-auto">
+              目标: 99.00% 优质水
+            </span>
+          </div>
+
+          <div id="maxVolWarningBox" class="hidden p-3.5 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-sm space-y-1">
+            <div id="maxVolWarningTitle" class="font-semibold text-[var(--foreground)]"></div>
+            <div id="maxVolWarningDesc" class="text-xs text-[var(--muted-foreground)]"></div>
+          </div>
+
+          <div id="maxVolResultGrid" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="p-4 rounded-xl bg-[var(--background)] border border-[var(--border)] flex flex-col justify-between">
+              <span class="text-xs text-[var(--muted-foreground)]">单晚最大可转化总液量</span>
+              <div class="mt-2 flex items-baseline gap-1.5">
+                <span id="maxSafeVolL" class="text-2xl font-bold text-[var(--foreground)]">5.00</span>
+                <span class="text-sm font-medium text-[var(--muted-foreground)]">升 (L)</span>
+              </div>
+              <span id="maxSafeVolMl" class="text-xs text-[var(--muted-foreground)] mt-1">约 5,000 mL</span>
+            </div>
+
+            <div class="p-4 rounded-xl bg-[var(--background)] border border-[var(--border)] flex flex-col justify-between">
+              <span class="text-xs text-[var(--muted-foreground)]">每升水需移除杂质</span>
+              <div class="mt-2 flex items-baseline gap-1.5">
+                <span id="removePerLiter" class="text-2xl font-bold text-[var(--foreground)]">10.00</span>
+                <span class="text-sm font-medium text-[var(--muted-foreground)]">mL / L</span>
+              </div>
+              <span id="removePctPerLiter" class="text-xs text-[var(--muted-foreground)] mt-1">需降低杂质占比 1.00%</span>
+            </div>
+
+            <div class="p-4 rounded-xl bg-[var(--background)] border border-[var(--border)] flex flex-col justify-between">
+              <span class="text-xs text-[var(--muted-foreground)]">满载(≥10L)单晚最大清理力</span>
+              <div class="mt-2 flex items-baseline gap-1.5">
+                <span id="maxNightBudget" class="text-2xl font-bold text-[var(--foreground)]">68.75</span>
+                <span class="text-sm font-medium text-[var(--muted-foreground)]">毫升 (mL)</span>
+              </div>
+              <span id="budgetFormulaHint" class="text-xs text-[var(--muted-foreground)] mt-1">55mL × 1.25 倍率</span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between text-xs bg-[var(--secondary)] px-3.5 py-2.5 rounded-xl">
+            <span id="quickApplyMaxText" class="text-[var(--muted-foreground)]">
+              💡 只要装入不超过此水量的水，睡一觉必定全桶质变为目标水质。
+            </span>
+            <button id="applyMaxVolBtn" onclick="applyMaxSafeVolume()" class="preset-btn ml-2 shrink-0 px-2.5 py-1 rounded-lg font-medium bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)]">
+              填入此极限水量
+            </button>
+          </div>
+        </div>
+
+        <!-- 核心看板 2：当前输入水量的单晚净化结果模拟 -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
+            <div>
+              <h2 class="text-base font-semibold flex items-center gap-2">
+                <span>🔬</span> 场景二：当前水量 (<span id="curVolTitle">10.00 L</span>) 睡一觉后的净化结果
+              </h2>
+              <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+                模拟今晚机器运行后，明早水桶内的最终纯度、杂质占比与实际去除量
+              </p>
+            </div>
+            <span id="simStatusBadge" class="text-xs px-2.5 py-1 rounded-full font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] self-start sm:self-auto">
+              ✅ 一晚达标
+            </span>
+          </div>
+
+          <!-- 前后对比核心指标 -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="p-4 rounded-xl bg-[var(--background)] border border-[var(--border)] space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="text-xs text-[var(--muted-foreground)]">明早产出水质纯度</span>
+                <span id="outGradeBadge" class="text-xs px-2 py-0.5 rounded font-semibold bg-[var(--secondary)] text-[var(--foreground)]">
+                  基础水 (Base)
+                </span>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span id="outPurityText" class="text-3xl font-bold text-[var(--foreground)]">98.69%</span>
+                <span id="purityDeltaText" class="text-xs font-semibold text-[var(--muted-foreground)]">+0.69%</span>
+              </div>
+              <div class="text-xs text-[var(--muted-foreground)] flex justify-between pt-1 border-t border-[var(--border)]">
+                <span>明早剩余杂质占比: <strong id="outImpurityPct" class="text-[var(--foreground)]">1.31%</strong></span>
+                <span>剩余杂质: <strong id="outImpurityMl" class="text-[var(--foreground)]">131.3 mL</strong></span>
+              </div>
+            </div>
+
+            <div class="p-4 rounded-xl bg-[var(--background)] border border-[var(--border)] space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="text-xs text-[var(--muted-foreground)]">今晚实际去除污染物 (机器显示)</span>
+                <span id="budgetUsagePctBadge" class="text-xs px-2 py-0.5 rounded bg-[var(--secondary)] text-[var(--muted-foreground)]">
+                  额度消耗 100%
+                </span>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span id="removedMlText" class="text-3xl font-bold text-[var(--foreground)]">68.8 mL</span>
+                <span id="removedTooltipInt" class="text-xs text-[var(--muted-foreground)]">(面板显示约 69 毫升)</span>
+              </div>
+              <div class="text-xs text-[var(--muted-foreground)] flex justify-between pt-1 border-t border-[var(--border)]">
+                <span>今晚可用额度: <strong id="curNightBudgetText" class="text-[var(--foreground)]">68.8 mL</strong></span>
+                <span>初始总杂质: <strong id="inImpurityMlText" class="text-[var(--foreground)]">200.0 mL</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="simSummaryBox" class="p-3.5 rounded-xl bg-[var(--secondary)] text-xs leading-relaxed text-[var(--foreground)]">
+          </div>
+
+          <div class="space-y-2 pt-1">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-[var(--muted-foreground)]">📅 连续多晚净化推演 (自动重算每晚污秽系数)</span>
+              <span id="nightsNeededText" class="text-xs font-medium text-[var(--foreground)]">预计第 2 晚达到 99.00%</span>
+            </div>
+            <div class="overflow-x-auto rounded-xl border border-[var(--border)]">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr class="bg-[var(--secondary)] text-[var(--muted-foreground)] border-b border-[var(--border)]">
+                    <th class="py-2 px-3 font-medium">进度</th>
+                    <th class="py-2 px-3 font-medium">当晚前纯度</th>
+                    <th class="py-2 px-3 font-medium">当晚最大额度</th>
+                    <th class="py-2 px-3 font-medium">实际去除杂质</th>
+                    <th class="py-2 px-3 font-medium">次日纯度 (杂质占比)</th>
+                    <th class="py-2 px-3 font-medium">次日水质等级</th>
+                  </tr>
+                </thead>
+                <tbody id="multiNightBody" class="divide-y divide-[var(--border)] bg-[var(--background)]">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 折叠/展开：杂质成分细分清理模拟 & 底层公式说明 -->
+        <details class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm group">
+          <summary class="cursor-pointer list-none flex items-center justify-between font-semibold text-sm">
+            <span class="flex items-center gap-2">
+              <span>🧪</span> 进阶：各污染物成分梯队清理模拟 & 源码公式速查 (点击展开)
+            </span>
+            <span class="text-xs text-[var(--muted-foreground)] group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+
+          <div class="mt-4 pt-4 border-t border-[var(--border)] space-y-4 text-xs">
+            <p class="text-[var(--muted-foreground)]">
+              底层代码 <code class="px-1 py-0.5 rounded bg-[var(--secondary)]">RemoveLargestFirst</code> 会先把普通杂质（按颗粒从大到小：碎屑200 &gt; 物理污染100 &gt; 微生物50 &gt; 有机废物40 &gt; 微塑料25）清理干净，最后才按顺序清理 <strong class="text-[var(--foreground)]">矿物质(30) &gt; 重金属(12) &gt; 化学污染物(2)</strong>。
+            </p>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div class="p-2.5 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                <label class="block text-[var(--muted-foreground)] mb-1">1. 有机/微生物/其他 (mL)</label>
+                <input id="impOther" type="number" value="10" step="1" min="0"
+                  class="w-full px-2 py-1 rounded bg-[var(--card)] border border-[var(--border)] font-semibold focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                  oninput="calcDetailedContaminants()" />
+                <div id="remOther" class="mt-1.5 text-[var(--muted-foreground)]">残留: 0 mL</div>
+              </div>
+              <div class="p-2.5 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                <label class="block text-[var(--muted-foreground)] mb-1">2. 矿物质 (mL)</label>
+                <input id="impMineral" type="number" value="20" step="1" min="0"
+                  class="w-full px-2 py-1 rounded bg-[var(--card)] border border-[var(--border)] font-semibold focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                  oninput="calcDetailedContaminants()" />
+                <div id="remMineral" class="mt-1.5 text-[var(--muted-foreground)]">残留: 0 mL</div>
+              </div>
+              <div class="p-2.5 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                <label class="block text-[var(--muted-foreground)] mb-1">3. 重金属 (mL)</label>
+                <input id="impHeavy" type="number" value="90" step="1" min="0"
+                  class="w-full px-2 py-1 rounded bg-[var(--card)] border border-[var(--border)] font-semibold focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                  oninput="calcDetailedContaminants()" />
+                <div id="remHeavy" class="mt-1.5 text-[var(--muted-foreground)]">残留: 51.3 mL</div>
+              </div>
+              <div class="p-2.5 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                <label class="block text-[var(--muted-foreground)] mb-1">4. 化学污染物 (mL)</label>
+                <input id="impChem" type="number" value="80" step="1" min="0"
+                  class="w-full px-2 py-1 rounded bg-[var(--card)] border border-[var(--border)] font-semibold focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                  oninput="calcDetailedContaminants()" />
+                <div id="remChem" class="mt-1.5 text-[var(--muted-foreground)]">残留: 80.0 mL</div>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-xl bg-[var(--secondary)] space-y-1 text-[var(--muted-foreground)]">
+              <div class="font-semibold text-[var(--foreground)]">📌 反编译核心公式备忘：</div>
+              <div>• <strong>基础清理预算</strong> = <code class="text-[var(--foreground)]">min(容器总液量, 10L) × 3mL/L + 25mL</code>（10L 及以上固定为 55 mL）</div>
+              <div>• <strong>最终清理额度</strong> = <code class="text-[var(--foreground)]">基础清理预算 × (污秽系数 + 性能加成%) × 1.25</code></div>
+              <div>• <strong>水质纯度判定</strong>：<code class="text-[var(--foreground)]">99.9%+</code> 即判定为<strong>纯水 (Pure Water)</strong>（仅需 +100% 质量加成即可解锁 99.9% 纯度上限）；+200% 质量可解锁 100% 完全零杂质。</div>
+            </div>
+          </div>
+        </details>
+
+      </div>
+    </div>
+  </div>
+
+  <footer class="max-w-5xl mx-auto mt-6 pb-2 text-center text-xs text-[var(--muted-foreground)] space-y-1">
+    <p>本工具为玩家自制的非官方辅助工具，计算结果仅供参考，与游戏开发商无关。</p>
+    <p>纯前端静态页面 · 所有计算均在本地浏览器中完成</p>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
