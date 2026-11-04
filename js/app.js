@@ -1,7 +1,21 @@
 /**
- * 深空当铺 · 净水器核心计算器
- * 计算逻辑基于游戏 MachinePurifier 净化公式
+ * 深空当铺 · 净水器计算器
+ * 计算逻辑基于游戏 MachinePurifier 净化公式（不考虑质量加成带来的纯度上限）
  */
+
+const $ = (id) => document.getElementById(id);
+
+const DEFAULTS = { perf: 0, purity: 98, vol: 10, target: 99, tab: 'sim' };
+const STORAGE_KEY = 'purifier-calc-v2';
+
+// 各场景使用到的参数（未使用的参数在界面上置灰）
+const TAB_FIELDS = {
+  sim: ['perf', 'purity', 'vol', 'target'],
+  maxVol: ['perf', 'purity', 'target'],
+  minPurity: ['perf', 'vol', 'target']
+};
+
+/* ---------------- 游戏公式 ---------------- */
 
 const DIRT_CURVE = [
   { p: 9800, b: 1.0 },
@@ -12,411 +26,274 @@ const DIRT_CURVE = [
   { p: 3750, b: 20.0 }
 ];
 
+/** 污秽系数：purityInt 为万分比纯度（98.00% → 9800） */
 function getDirtBonus(purityInt) {
   if (purityInt >= DIRT_CURVE[0].p) return DIRT_CURVE[0].b;
   for (let i = 1; i < DIRT_CURVE.length; i++) {
-    const p1 = DIRT_CURVE[i - 1].p;
-    const b1 = DIRT_CURVE[i - 1].b;
-    const p2 = DIRT_CURVE[i].p;
-    const b2 = DIRT_CURVE[i].b;
-    if (purityInt >= p2) {
-      const t = (p1 - purityInt) / (p1 - p2);
-      return b1 + t * (b2 - b1);
-    }
+    const a = DIRT_CURVE[i - 1], b = DIRT_CURVE[i];
+    if (purityInt >= b.p) return a.b + ((a.p - purityInt) / (a.p - b.p)) * (b.b - a.b);
   }
   return DIRT_CURVE[DIRT_CURVE.length - 1].b;
 }
 
-function getPurityMult(bonusQuality) {
-  if (bonusQuality >= 200) return 0.0;
-  if (bonusQuality >= 100) return 0.1;
-  if (bonusQuality >= 75) return 0.2;
-  if (bonusQuality >= 50) return 0.35;
-  if (bonusQuality >= 25) return 0.65;
-  if (bonusQuality >= 15) return 0.85;
-  return 1.0;
+function getMult(purityInt, perf) {
+  return Math.max(0, getDirtBonus(purityInt) + perf / 100) * 1.25;
 }
 
-function getMaxPurityCapInt(bonusQuality) {
-  return 10000 - Math.round(100.0 * getPurityMult(bonusQuality));
+/** 单晚清理额度（单位 µL） */
+function getNightBudgetUl(volUl, purityInt, perf) {
+  const mult = getMult(purityInt, perf);
+  const baseUl = Math.floor((Math.min(volUl, 10000000) * 3) / 1000) + 25000;
+  return { budgetUl: Math.floor(baseUl * mult), mult };
 }
 
-function getWaterGradeName(purityInt) {
-  if (purityInt >= 9990) return "纯水 (Pure)";
-  if (purityInt >= 9900) return "优质水 (High-Quality)";
-  if (purityInt >= 9800) return "基础水 (Base)";
-  if (purityInt >= 9600) return "幽灵水 (Ghost)";
-  if (purityInt >= 9000) return "铁锈水 (Rust)";
-  return "阴沟水 (Gutterflow)";
+function gradeName(purityInt) {
+  if (purityInt >= 9990) return '纯水';
+  if (purityInt >= 9900) return '优质水';
+  if (purityInt >= 9800) return '基础水';
+  if (purityInt >= 9600) return '幽灵水';
+  if (purityInt >= 9000) return '铁锈水';
+  return '阴沟水';
 }
 
-function getNightBudgetUl(totalVolumeUl, purityInt, perfBonusInt) {
-  const dirtBonus = getDirtBonus(purityInt);
-  let mult = dirtBonus + (perfBonusInt / 100.0);
-  if (mult < 0) mult = 0;
-  mult *= 1.25;
+const toInt = (pct) => Math.round(pct * 100);
+const ml = (ul, d = 1) => `${(ul / 1000).toFixed(d)} mL`;
 
-  const cappedVolUl = Math.min(totalVolumeUl, 10000000);
-  const baseBudgetUl = Math.floor((cappedVolUl * 3) / 1000) + 25000;
-  return {
-    budgetUl: Math.floor(baseBudgetUl * mult),
-    dirtBonus,
-    mult,
-    baseBudgetUl
-  };
+/* ---------------- 状态 ---------------- */
+
+let state = { ...DEFAULTS };
+try { Object.assign(state, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')); } catch (e) { /* ignore */ }
+
+const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+function readNum(id, fallback, min, max) {
+  const v = parseFloat($(id).value);
+  if (isNaN(v)) return fallback;
+  return Math.min(max, Math.max(min, v));
 }
 
-function syncFromInput(type) {
-  if (type === 'perf') {
-    document.getElementById('perfRange').value = document.getElementById('perfInput').value;
-  } else if (type === 'qual') {
-    document.getElementById('qualRange').value = document.getElementById('qualInput').value;
-  } else if (type === 'purity') {
-    document.getElementById('purityRange').value = document.getElementById('purityInput').value;
-  } else if (type === 'vol') {
-    document.getElementById('volRange').value = document.getElementById('volInput').value;
-  }
-  calculateAll();
+function readInputs() {
+  state.perf = readNum('perfInput', 0, -100, 1000);
+  state.purity = readNum('purityInput', 98, 1, 100);
+  state.vol = readNum('volInput', 10, 0.01, 1000);
+  state.target = readNum('targetInput', 99, 1, 100);
 }
 
-function syncFromRange(type) {
-  if (type === 'perf') {
-    document.getElementById('perfInput').value = document.getElementById('perfRange').value;
-  } else if (type === 'qual') {
-    document.getElementById('qualInput').value = document.getElementById('qualRange').value;
-  } else if (type === 'purity') {
-    document.getElementById('purityInput').value = document.getElementById('purityRange').value;
-  } else if (type === 'vol') {
-    document.getElementById('volInput').value = document.getElementById('volRange').value;
-  }
-  calculateAll();
+function writeInputs() {
+  $('perfInput').value = state.perf;
+  $('perfRange').value = state.perf;
+  $('purityInput').value = (+state.purity).toFixed(2);
+  $('purityRange').value = state.purity;
+  $('volInput').value = state.vol;
+  $('volRange').value = state.vol;
+  $('targetInput').value = (+state.target).toFixed(2);
 }
 
-function setQuality(q) {
-  document.getElementById('qualInput').value = q;
-  document.getElementById('qualRange').value = q;
-  calculateAll();
-}
+/* ---------------- 场景计算 ---------------- */
 
-function setVolume(v) {
-  document.getElementById('volInput').value = v;
-  document.getElementById('volRange').value = v;
-  calculateAll();
-}
+function renderSim() {
+  const { perf, purity, vol, target } = state;
+  const volUl = Math.round(vol * 1e6);
+  const waterUl = Math.round(volUl * purity / 100);
+  const contamUl = volUl - waterUl;
+  const inInt = toInt(purity);
+  const tInt = toInt(target);
 
-function setTarget(t) {
-  const input = document.getElementById('targetInput');
-  if (t === 0) {
-    input.value = '';
-  } else {
-    input.value = t.toFixed(2);
-  }
-  calculateAll();
-}
+  const { budgetUl } = getNightBudgetUl(volUl, inInt, perf);
+  const removedUl = Math.min(budgetUl, contamUl);
+  const outPct = (waterUl + removedUl) / volUl * 100;
+  const outInt = Math.floor((waterUl + removedUl) * 10000 / volUl);
+  const needUl = Math.max(0, contamUl - Math.floor(volUl * (100 - target) / 100));
 
-let lastCalculatedMaxSafeL = 5.0;
+  $('simBefore').textContent = `${purity.toFixed(2)}%`;
+  $('simBeforeGrade').textContent = gradeName(inInt);
+  $('simAfter').textContent = `${outPct.toFixed(2)}%`;
+  $('simAfterGrade').textContent = `${gradeName(outInt)} · +${(outPct - purity).toFixed(2)}%`;
+  $('simBudget').textContent = ml(budgetUl);
+  $('simRemoved').textContent = ml(removedUl);
+  $('simLeft').textContent = ml(contamUl - removedUl);
 
-function applyMaxSafeVolume() {
-  if (lastCalculatedMaxSafeL > 0) {
-    const v = Math.floor(lastCalculatedMaxSafeL * 100) / 100;
-    setVolume(v);
-  }
-}
+  const ok = outPct + 0.005 >= target;
+  const badge = $('simBadge');
+  badge.className = 'badge ' + (ok ? 'ok' : 'no');
+  badge.textContent = ok ? '✅ 一晚达标' : '⏳ 一晚不够';
 
-function resetDefault() {
-  document.getElementById('perfInput').value = 0;
-  document.getElementById('perfRange').value = 0;
-  document.getElementById('qualInput').value = 0;
-  document.getElementById('qualRange').value = 0;
-  document.getElementById('effInput').value = 0;
-  document.getElementById('purityInput').value = 98.00;
-  document.getElementById('purityRange').value = 98.00;
-  document.getElementById('volInput').value = 10;
-  document.getElementById('volRange').value = 10;
-  document.getElementById('targetInput').value = '99.00';
-  document.getElementById('impOther').value = 10;
-  document.getElementById('impMineral').value = 20;
-  document.getElementById('impHeavy').value = 90;
-  document.getElementById('impChem').value = 80;
-  calculateAll();
-}
+  $('simSummary').innerHTML = ok
+    ? `这桶 <strong>${vol.toFixed(2)} L</strong> 的水需去除 <strong>${ml(needUl)}</strong> 杂质，今晚额度 <strong>${ml(budgetUl)}</strong>，足够一晚达到 <strong>${target.toFixed(2)}%</strong>。`
+    : `达到 <strong>${target.toFixed(2)}%</strong> 共需去除 <strong>${ml(needUl)}</strong> 杂质，今晚只能去除 <strong>${ml(removedUl)}</strong>（还差 ${ml(needUl - removedUl)}）。可切换到「最大水量」或「最低入水纯度」查看如何一晚达标。`;
 
-function highlightButtons(qualBonus, volL, targetVal) {
-  const qTiers = [0, 15, 25, 50, 75, 100, 200];
-  let activeQ = 0;
-  for (const t of qTiers) {
-    if (qualBonus >= t) activeQ = t;
-  }
-  for (const t of qTiers) {
-    const btn = document.getElementById('qBtn' + t);
-    if (!btn) continue;
-    const spanClass = t === 100 ? "col-span-2 " : "";
-    if (t === activeQ) {
-      btn.className = "preset-btn " + spanClass + "px-2 py-1.5 rounded-lg text-xs border border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] text-center shadow-sm";
-      btn.children[1].className = "opacity-90";
-    } else {
-      btn.className = "preset-btn " + spanClass + "px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center";
-      btn.children[1].className = "text-[var(--muted-foreground)]";
-    }
-  }
-
-  const vPresets = [3, 5, 20, 50];
-  for (const v of vPresets) {
-    const btn = document.getElementById('vBtn' + v);
-    if (!btn) continue;
-    if (Math.abs(volL - v) < 0.01) {
-      btn.className = "preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] text-center shadow-sm";
-      btn.children[1].className = "opacity-90";
-    } else {
-      btn.className = "preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center";
-      btn.children[1].className = "text-[var(--muted-foreground)]";
-    }
-  }
-
-  const tBtns = [
-    { id: 'tBtn98', val: 98.0 },
-    { id: 'tBtn99', val: 99.0 },
-    { id: 'tBtn999', val: 99.9 },
-    { id: 'tBtnCap', val: null }
-  ];
-  for (const item of tBtns) {
-    const btn = document.getElementById(item.id);
-    const isMatch = (item.val === null && isNaN(targetVal)) || (item.val !== null && !isNaN(targetVal) && Math.abs(targetVal - item.val) < 0.005);
-    if (isMatch) {
-      btn.className = "preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] text-center shadow-sm";
-      btn.children[1].className = "opacity-90";
-    } else {
-      btn.className = "preset-btn px-2 py-1.5 rounded-lg text-xs border border-[var(--border)] bg-[var(--secondary)] text-center";
-      btn.children[1].className = "text-[var(--muted-foreground)]";
-    }
-  }
-}
-
-function calculateAll() {
-  const perfBonus = parseInt(document.getElementById('perfInput').value || '0', 10);
-  const qualBonus = parseInt(document.getElementById('qualInput').value || '0', 10);
-  const effBonus = parseInt(document.getElementById('effInput').value || '0', 10);
-  const inPurityPct = Math.min(99.99, Math.max(0.01, parseFloat(document.getElementById('purityInput').value || '98')));
-  const volL = Math.max(0.01, parseFloat(document.getElementById('volInput').value || '10'));
-  const rawTargetStr = document.getElementById('targetInput').value.trim();
-  const userTargetPct = rawTargetStr === '' ? NaN : Math.min(100, Math.max(0.01, parseFloat(rawTargetStr)));
-
-  highlightButtons(qualBonus, volL, userTargetPct);
-
-  const basePower = 4;
-  const powerReduction = Math.trunc((basePower * effBonus) / 100);
-  const actualPower = Math.max(1, basePower - powerReduction);
-  document.getElementById('powerBadge').textContent = `耗电: ${actualPower} / 天`;
-  document.getElementById('perfEffectText').textContent = `清理效率 ${perfBonus >= 0 ? '+' : ''}${perfBonus}%`;
-
-  const capInt = getMaxPurityCapInt(qualBonus);
-  const capPct = capInt / 100.0;
-  document.getElementById('capDisplay').textContent = `${capPct.toFixed(2)}% (${getWaterGradeName(capInt)})`;
-
-  const inPurityInt = Math.round(inPurityPct * 100);
-  const inContaminantPct = 100 - inPurityPct;
-  const dirtBonus = getDirtBonus(inPurityInt);
-  let mult = (dirtBonus + perfBonus / 100.0);
-  if (mult < 0) mult = 0;
-  mult *= 1.25;
-
-  document.getElementById('inputGradeBadge').textContent = `当前: ${getWaterGradeName(inPurityInt)}`;
-  document.getElementById('contaminantPctText').textContent = `初始杂质占比: ${inContaminantPct.toFixed(2)}%`;
-  document.getElementById('dirtBonusText').textContent = `污秽系数: ${dirtBonus.toFixed(2)}x | 总倍率: ${mult.toFixed(3)}x`;
-
-  const desiredTargetPct = isNaN(userTargetPct) ? capPct : userTargetPct;
-  const effectiveTargetPct = Math.min(desiredTargetPct, capPct);
-
-  const maxNightBudgetMl = 55.0 * mult;
-  document.getElementById('maxNightBudget').textContent = maxNightBudgetMl.toFixed(2);
-  document.getElementById('budgetFormulaHint').textContent = `55mL × ${mult.toFixed(2)} 倍率`;
-  document.getElementById('maxVolStatusBadge').textContent = isNaN(userTargetPct)
-    ? `目标: 机器上限 ${capPct.toFixed(2)}% (${getWaterGradeName(capInt)})`
-    : `目标: ${desiredTargetPct.toFixed(2)}% (${getWaterGradeName(Math.round(desiredTargetPct * 100))})`;
-
-  const warnBox = document.getElementById('maxVolWarningBox');
-  const warnTitle = document.getElementById('maxVolWarningTitle');
-  const warnDesc = document.getElementById('maxVolWarningDesc');
-  const applyBtn = document.getElementById('applyMaxVolBtn');
-
-  if (!isNaN(userTargetPct) && userTargetPct > capPct + 0.001) {
-    warnBox.classList.remove('hidden');
-    let neededQual = 15;
-    if (userTargetPct > 99.9) neededQual = 200;
-    else if (userTargetPct > 99.8) neededQual = 100;
-    else if (userTargetPct > 99.65) neededQual = 75;
-    else if (userTargetPct > 99.35) neededQual = 50;
-    else if (userTargetPct > 99.15) neededQual = 25;
-    warnTitle.textContent = `⚠️ 目标水质 (${userTargetPct.toFixed(2)}%) 高于当前机器纯度上限 (${capPct.toFixed(2)}%)！`;
-    warnDesc.textContent = `净水器到达 ${capPct.toFixed(2)}% 后会强制停机。若要达到 ${userTargetPct.toFixed(2)}%（${getWaterGradeName(Math.round(userTargetPct * 100))}），请至少堆叠 +${neededQual}% 质量加成。下方已按当前机器最高上限 (${capPct.toFixed(2)}%) 为您折算。`;
-  } else {
-    warnBox.classList.add('hidden');
-  }
-
-  const deltaPurityFraction = (effectiveTargetPct - inPurityPct) / 100.0;
-  if (deltaPurityFraction <= 0) {
-    document.getElementById('maxSafeVolL').textContent = "已达标";
-    document.getElementById('maxSafeVolMl').textContent = "无需净化，当前水质已 ≥ 目标";
-    document.getElementById('removePerLiter').textContent = "0.00";
-    document.getElementById('removePctPerLiter').textContent = "需降低杂质占比 0.00%";
-    document.getElementById('quickApplyMaxText').innerHTML = `✅ 当前输入水质 (<strong class="text-[var(--foreground)]">${inPurityPct.toFixed(2)}%</strong>) 已经达到或超过有效目标 (<strong class="text-[var(--foreground)]">${effectiveTargetPct.toFixed(2)}%</strong>)。`;
-    applyBtn.classList.add('hidden');
-    lastCalculatedMaxSafeL = 0;
-  } else if (mult <= 0) {
-    document.getElementById('maxSafeVolL').textContent = "0.00";
-    document.getElementById('maxSafeVolMl').textContent = "性能过低，机器无法工作";
-    applyBtn.classList.add('hidden');
-    lastCalculatedMaxSafeL = 0;
-  } else {
-    applyBtn.classList.remove('hidden');
-    const removeMlPerL = deltaPurityFraction * 1000.0;
-    document.getElementById('removePerLiter').textContent = removeMlPerL.toFixed(2);
-    document.getElementById('removePctPerLiter').textContent = `需降低杂质占比 ${(deltaPurityFraction * 100).toFixed(2)}%`;
-
-    const neededAt10L = 10000.0 * deltaPurityFraction;
-    let maxSafeMl = 0;
-    if (neededAt10L <= maxNightBudgetMl) {
-      maxSafeMl = maxNightBudgetMl / deltaPurityFraction;
-    } else {
-      maxSafeMl = (25.0 * mult) / (deltaPurityFraction - 0.003 * mult);
-    }
-    lastCalculatedMaxSafeL = maxSafeMl / 1000.0;
-    document.getElementById('maxSafeVolL').textContent = lastCalculatedMaxSafeL.toFixed(2);
-    document.getElementById('maxSafeVolMl').textContent = `约 ${Math.floor(maxSafeMl).toLocaleString()} mL`;
-    document.getElementById('quickApplyMaxText').innerHTML =
-      `💡 只要装入不超过 <strong class="text-[var(--foreground)]">${lastCalculatedMaxSafeL.toFixed(2)} L</strong> 的 <strong class="text-[var(--foreground)]">${inPurityPct.toFixed(2)}%</strong> 水，睡一觉必定全桶质变为 <strong class="text-[var(--foreground)]">${effectiveTargetPct.toFixed(2)}% (${getWaterGradeName(Math.round(effectiveTargetPct * 100))})</strong>。`;
-  }
-
-  document.getElementById('curVolTitle').textContent = `${volL.toFixed(2)} L`;
-  const totalVolUl = Math.round(volL * 1000000);
-  const waterUl = Math.round(totalVolUl * (inPurityPct / 100.0));
-  const totalContaminantsUl = totalVolUl - waterUl;
-
-  const capAllowedContamUl = Math.floor((totalVolUl * (10000 - capInt)) / 10000);
-  const excessAboveCapUl = Math.max(0, totalContaminantsUl - capAllowedContamUl);
-
-  const budgetInfo = getNightBudgetUl(totalVolUl, inPurityInt, perfBonus);
-  const curBudgetUl = budgetInfo.budgetUl;
-
-  const actualRemovedUl = Math.min(curBudgetUl, excessAboveCapUl);
-  const newWaterUl = waterUl + actualRemovedUl;
-  const newContamUl = totalContaminantsUl - actualRemovedUl;
-  const newPurityPct = (newWaterUl / totalVolUl) * 100.0;
-  const newPurityInt = Math.floor((newWaterUl * 10000) / totalVolUl);
-  const newImpurityPct = 100.0 - newPurityPct;
-
-  document.getElementById('outPurityText').textContent = `${newPurityPct.toFixed(2)}%`;
-  const deltaPct = newPurityPct - inPurityPct;
-  document.getElementById('purityDeltaText').textContent = `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(2)}%`;
-  document.getElementById('outGradeBadge').textContent = getWaterGradeName(newPurityInt);
-  document.getElementById('outImpurityPct').textContent = `${newImpurityPct.toFixed(2)}%`;
-  document.getElementById('outImpurityMl').textContent = `${(newContamUl / 1000.0).toFixed(1)} mL`;
-
-  const removedMl = actualRemovedUl / 1000.0;
-  const curBudgetMl = curBudgetUl / 1000.0;
-  document.getElementById('removedMlText').textContent = `${removedMl.toFixed(1)} mL`;
-  document.getElementById('removedTooltipInt').textContent = `(面板显示约 ${Math.round(removedMl)} 毫升)`;
-  document.getElementById('curNightBudgetText').textContent = `${curBudgetMl.toFixed(1)} mL`;
-  document.getElementById('inImpurityMlText').textContent = `${(totalContaminantsUl / 1000.0).toFixed(1)} mL`;
-
-  const usageRatio = curBudgetUl > 0 ? Math.min(100, Math.round((actualRemovedUl / curBudgetUl) * 100)) : 0;
-  document.getElementById('budgetUsagePctBadge').textContent = `额度消耗 ${usageRatio}%`;
-
-  const targetAllowedContamUl = Math.floor((totalVolUl * (100.0 - desiredTargetPct)) / 100.0);
-  const neededForUserTargetUl = Math.max(0, totalContaminantsUl - targetAllowedContamUl);
-
-  const simBadge = document.getElementById('simStatusBadge');
-  const simSummary = document.getElementById('simSummaryBox');
-
-  if (!isNaN(userTargetPct) && userTargetPct > capPct + 0.001) {
-    simBadge.textContent = "🚫 受限于纯度上限";
-    simBadge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-[var(--secondary)] text-[var(--foreground)] self-start sm:self-auto";
-    simSummary.innerHTML = `⚠️ <strong>机器纯度上限不足：</strong>你设定的目标是 <strong>${desiredTargetPct.toFixed(2)}%</strong>，但当前机器纯度上限只有 <strong>${capPct.toFixed(2)}%</strong>。明早最多只能净化到 <strong>${newPurityPct.toFixed(2)}%</strong>（剩余杂质占比 ${newImpurityPct.toFixed(2)}%）。`;
-  } else if (newPurityPct + 0.005 >= desiredTargetPct) {
-    simBadge.textContent = "✅ 一晚达标";
-    simBadge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] self-start sm:self-auto";
-    const spareMl = Math.max(0, (curBudgetUl - neededForUserTargetUl) / 1000.0);
-    simSummary.innerHTML = `🎉 <strong>一晚稳出目标水质！</strong>这桶 <strong>${volL.toFixed(2)} L</strong> 的水只需去除 <strong>${(neededForUserTargetUl / 1000.0).toFixed(1)} mL</strong> 杂质即可达到 <strong>${desiredTargetPct.toFixed(2)}%</strong>，而机器今晚有 <strong>${curBudgetMl.toFixed(1)} mL</strong> 额度（富余 <strong>${spareMl.toFixed(1)} mL</strong>）。明早纯度将达到 <strong>${newPurityPct.toFixed(2)}% (${getWaterGradeName(newPurityInt)})</strong>，达到上限后自动停机保护。`;
-  } else {
-    simBadge.textContent = "⏳ 一晚不够 (水量偏多)";
-    simBadge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-[var(--secondary)] text-[var(--foreground)] self-start sm:self-auto";
-    const shortfallMl = (neededForUserTargetUl - actualRemovedUl) / 1000.0;
-    simSummary.innerHTML = `⚠️ <strong>一晚上无法达到 ${desiredTargetPct.toFixed(2)}%！</strong>要将 <strong>${volL.toFixed(2)} L</strong> 水升到目标纯度共需去除 <strong>${(neededForUserTargetUl / 1000.0).toFixed(1)} mL</strong> 杂质，但今晚满打满算只能去除 <strong>${removedMl.toFixed(1)} mL</strong>（还差 <strong>${shortfallMl.toFixed(1)} mL</strong>）。明早纯度将停在 <strong>${newPurityPct.toFixed(2)}% (${getWaterGradeName(newPurityInt)})</strong>。建议将水量减少至 <strong>${lastCalculatedMaxSafeL.toFixed(2)} L</strong> 以内，或连续净化多晚。`;
-  }
-
-  const tbody = document.getElementById('multiNightBody');
+  // 多晚推演
+  const tbody = $('nightBody');
   tbody.innerHTML = '';
-  let simWaterUl = waterUl;
-  let nightsToTarget = null;
-
-  for (let night = 1; night <= 6; night++) {
-    const startPurityPct = (simWaterUl / totalVolUl) * 100.0;
-    const startPurityInt = Math.floor((simWaterUl * 10000) / totalVolUl);
-    const startContamUl = totalVolUl - simWaterUl;
-    const remToCapUl = Math.max(0, startContamUl - capAllowedContamUl);
-
-    const bInfo = getNightBudgetUl(totalVolUl, startPurityInt, perfBonus);
-    const nightRemUl = Math.min(bInfo.budgetUl, remToCapUl);
-    simWaterUl += nightRemUl;
-
-    const endPurityPct = (simWaterUl / totalVolUl) * 100.0;
-    const endPurityInt = Math.floor((simWaterUl * 10000) / totalVolUl);
-    const endImpurityPct = 100.0 - endPurityPct;
-
-    if (nightsToTarget === null && endPurityPct + 0.005 >= effectiveTargetPct) {
-      nightsToTarget = night;
-    }
+  let w = waterUl, hitNight = null;
+  for (let n = 1; n <= 8; n++) {
+    const sInt = Math.floor(w * 10000 / volUl);
+    const sPct = w / volUl * 100;
+    const b = getNightBudgetUl(volUl, sInt, perf);
+    const rem = Math.min(b.budgetUl, volUl - w);
+    w += rem;
+    const ePct = w / volUl * 100;
+    const eInt = Math.floor(w * 10000 / volUl);
+    const hit = hitNight === null && ePct + 0.005 >= target;
+    if (hit) hitNight = n;
 
     const tr = document.createElement('tr');
-    tr.className = night === 1 ? "font-semibold" : "text-[var(--muted-foreground)]";
-    tr.innerHTML = `
-      <td class="py-2 px-3">第 ${night} 晚</td>
-      <td class="py-2 px-3">${startPurityPct.toFixed(2)}%</td>
-      <td class="py-2 px-3">${(bInfo.budgetUl / 1000.0).toFixed(1)} mL (${bInfo.mult.toFixed(2)}x)</td>
-      <td class="py-2 px-3">${(nightRemUl / 1000.0).toFixed(1)} mL</td>
-      <td class="py-2 px-3">${endPurityPct.toFixed(2)}% (杂质 ${endImpurityPct.toFixed(2)}%)</td>
-      <td class="py-2 px-3">${getWaterGradeName(endPurityInt)}</td>
-    `;
+    if (hit) tr.className = 'hit';
+    tr.innerHTML = `<td>第 ${n} 晚</td><td>${sPct.toFixed(2)}%</td><td>${ml(b.budgetUl)} (${b.mult.toFixed(2)}x)</td>`
+      + `<td>${ml(rem)}</td><td>${ePct.toFixed(2)}%</td><td>${gradeName(eInt)}</td>`;
     tbody.appendChild(tr);
+    if (hitNight !== null || rem === 0) break;
+  }
+  $('nightsText').textContent = hitNight
+    ? `第 ${hitNight} 晚达到 ${target.toFixed(2)}%`
+    : (purity >= target ? '已达标' : '8 晚内未达标');
+  if (purity >= target) $('nightBody').innerHTML = '';
+}
 
-    if (remToCapUl - nightRemUl <= 0 || nightRemUl === 0) break;
+let lastMaxVol = 0;
+
+function renderMaxVol() {
+  const { perf, purity, target } = state;
+  const d = (target - purity) / 100;
+  const mult = getMult(toInt(purity), perf);
+  const budget10 = 55 * mult;
+
+  $('mvBudget').textContent = `${budget10.toFixed(1)} mL`;
+  $('mvPerL').textContent = `${Math.max(0, d * 1000).toFixed(2)} mL`;
+  $('mvApply').classList.add('hidden');
+  $('mvUnit').textContent = 'L';
+  lastMaxVol = 0;
+
+  if (d <= 0) {
+    $('mvValue').textContent = '不限';
+    $('mvUnit').textContent = '';
+    $('mvSub').textContent = '输入水已达到目标纯度';
+    $('mvSummary').innerHTML = `输入水 <strong>${purity.toFixed(2)}%</strong> ≥ 目标 <strong>${target.toFixed(2)}%</strong>，无需净化。`;
+    return;
+  }
+  if (mult <= 0) {
+    $('mvValue').textContent = '0';
+    $('mvSub').textContent = '性能过低，机器无法工作';
+    $('mvSummary').textContent = '请提高性能加成。';
+    return;
   }
 
-  document.getElementById('nightsNeededText').textContent = nightsToTarget
-    ? `预计第 ${nightsToTarget} 晚达到 ${effectiveTargetPct.toFixed(2)}%`
-    : `多晚后逼近上限 ${capPct.toFixed(2)}%`;
+  const perL = d * 1000; // 每升需去除 mL
+  const maxL = perL * 10 <= budget10 ? budget10 / perL : (25 * mult) / (perL - 3 * mult);
+  lastMaxVol = Math.floor(maxL * 100) / 100;
 
-  window.lastActualRemovedMl = removedMl;
-  calcDetailedContaminants();
+  $('mvValue').textContent = lastMaxVol.toFixed(2);
+  $('mvSub').textContent = `约 ${Math.floor(maxL * 1000).toLocaleString()} mL`;
+  $('mvSummary').innerHTML = `装入不超过 <strong>${lastMaxVol.toFixed(2)} L</strong> 的 ${purity.toFixed(2)}% 水，睡一觉必定达到 <strong>${target.toFixed(2)}%（${gradeName(toInt(target))}）</strong>。`;
+  $('mvApply').classList.remove('hidden');
 }
 
-function calcDetailedContaminants() {
-  let budgetLeft = window.lastActualRemovedMl || 0;
-  const other = Math.max(0, parseFloat(document.getElementById('impOther').value || '0'));
-  const mineral = Math.max(0, parseFloat(document.getElementById('impMineral').value || '0'));
-  const heavy = Math.max(0, parseFloat(document.getElementById('impHeavy').value || '0'));
-  const chem = Math.max(0, parseFloat(document.getElementById('impChem').value || '0'));
+let lastMinPurity = null;
 
-  const rem1 = Math.min(other, budgetLeft);
-  budgetLeft -= rem1;
-  const leftOther = other - rem1;
-
-  const rem2 = Math.min(mineral, budgetLeft);
-  budgetLeft -= rem2;
-  const leftMineral = mineral - rem2;
-
-  const rem3 = Math.min(heavy, budgetLeft);
-  budgetLeft -= rem3;
-  const leftHeavy = heavy - rem3;
-
-  const rem4 = Math.min(chem, budgetLeft);
-  budgetLeft -= rem4;
-  const leftChem = chem - rem4;
-
-  document.getElementById('remOther').textContent = `去除 ${rem1.toFixed(2)} | 残留: ${leftOther.toFixed(2)} mL`;
-  document.getElementById('remMineral').textContent = `去除 ${rem2.toFixed(2)} | 残留: ${leftMineral.toFixed(2)} mL`;
-  document.getElementById('remHeavy').textContent = `去除 ${rem3.toFixed(2)} | 残留: ${leftHeavy.toFixed(2)} mL`;
-  document.getElementById('remChem').textContent = `去除 ${rem4.toFixed(2)} | 残留: ${leftChem.toFixed(2)} mL`;
+/** 从目标纯度往下逐 0.01% 扫描，找到"连续可一晚达标"的最低入水纯度 */
+function findMinPurity(volUl, tInt, perf) {
+  let lowest = tInt;
+  for (let p = tInt - 1; p >= 9000; p--) {
+    const needUl = volUl * (tInt - p) / 10000;
+    if (getNightBudgetUl(volUl, p, perf).budgetUl < needUl) break;
+    lowest = p;
+  }
+  return lowest;
 }
 
-calculateAll();
+function renderMinPurity() {
+  const { perf, vol, target } = state;
+  const volUl = Math.round(vol * 1e6);
+  const tInt = toInt(target);
+  $('mpApply').classList.add('hidden');
+  lastMinPurity = null;
+
+  if (tInt <= 9000) {
+    $('mpValue').textContent = '任意';
+    $('mpUnit').textContent = '';
+    $('mpSub').textContent = '目标低于滑动范围下限 90%';
+    $('mpBudget').textContent = $('mpNeed').textContent = '-';
+    $('mpSummary').textContent = '目标纯度过低，无需计算。';
+    return;
+  }
+
+  const p = findMinPurity(volUl, tInt, perf);
+  const needUl = volUl * (tInt - p) / 10000;
+  const { budgetUl } = getNightBudgetUl(volUl, p, perf);
+  lastMinPurity = p / 100;
+
+  $('mpUnit').textContent = '%';
+  $('mpBudget').textContent = ml(budgetUl);
+  $('mpNeed').textContent = ml(needUl);
+
+  if (p === tInt) {
+    $('mpValue').textContent = (p / 100).toFixed(2);
+    $('mpSub').textContent = '性能不足以一晚提升 0.01%';
+    $('mpSummary').innerHTML = `当前性能下，<strong>${vol.toFixed(2)} L</strong> 水一晚连 0.01% 都提升不了，请减少水量或提高性能。`;
+    return;
+  }
+
+  const atFloor = p === 9000;
+  $('mpValue').textContent = (atFloor ? '≤ ' : '') + (p / 100).toFixed(2);
+  $('mpSub').textContent = `${gradeName(p)} · 比目标低 ${((tInt - p) / 100).toFixed(2)}%`;
+  $('mpSummary').innerHTML = atFloor
+    ? `只要输入水纯度不低于 <strong>90%</strong>，<strong>${vol.toFixed(2)} L</strong> 水都能一晚达到 <strong>${target.toFixed(2)}%</strong>。`
+    : `输入水纯度 ≥ <strong>${(p / 100).toFixed(2)}%</strong> 时，<strong>${vol.toFixed(2)} L</strong> 水睡一觉即可达到 <strong>${target.toFixed(2)}%（${gradeName(tInt)}）</strong>。`;
+  $('mpApply').classList.remove('hidden');
+}
+
+/* ---------------- 界面 ---------------- */
+
+function renderUI() {
+  // 标签页
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === state.tab));
+  document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === state.tab));
+  // 参数置灰
+  document.querySelectorAll('.field').forEach((f) => f.classList.toggle('off', !TAB_FIELDS[state.tab].includes(f.dataset.field)));
+  // 快捷按钮高亮
+  document.querySelectorAll('#volChips .chip').forEach((c) => c.classList.toggle('active', Math.abs(+c.dataset.v - state.vol) < 0.01));
+  document.querySelectorAll('#targetChips .chip').forEach((c) => c.classList.toggle('active', Math.abs(+c.dataset.t - state.target) < 0.005));
+  $('purityGrade').textContent = gradeName(toInt(state.purity));
+}
+
+function update() {
+  renderUI();
+  if (state.tab === 'sim') renderSim();
+  else if (state.tab === 'maxVol') renderMaxVol();
+  else renderMinPurity();
+  save();
+}
+
+function bindPair(name) {
+  const input = $(name + 'Input'), range = $(name + 'Range');
+  input.addEventListener('input', () => { readInputs(); range.value = state[name]; update(); });
+  input.addEventListener('change', writeInputs);
+  range.addEventListener('input', () => { input.value = range.value; readInputs(); update(); });
+}
+
+['perf', 'purity', 'vol'].forEach(bindPair);
+$('targetInput').addEventListener('input', () => { readInputs(); update(); });
+$('targetInput').addEventListener('change', writeInputs);
+
+document.querySelectorAll('#volChips .chip').forEach((c) => c.addEventListener('click', () => {
+  state.vol = +c.dataset.v; writeInputs(); update();
+}));
+document.querySelectorAll('#targetChips .chip').forEach((c) => c.addEventListener('click', () => {
+  state.target = +c.dataset.t; writeInputs(); update();
+}));
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
+  state.tab = t.dataset.tab; update();
+}));
+
+$('mvApply').addEventListener('click', () => {
+  if (lastMaxVol > 0) { state.vol = lastMaxVol; state.tab = 'sim'; writeInputs(); update(); }
+});
+$('mpApply').addEventListener('click', () => {
+  if (lastMinPurity !== null) { state.purity = lastMinPurity; state.tab = 'sim'; writeInputs(); update(); }
+});
+$('resetBtn').addEventListener('click', () => {
+  state = { ...DEFAULTS, tab: state.tab }; writeInputs(); update();
+});
+
+writeInputs();
+update();
