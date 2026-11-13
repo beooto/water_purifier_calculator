@@ -8,7 +8,7 @@ const $ = (id) => document.getElementById(id);
 const DEFAULTS = { perf: 0, purity: 98, vol: 10, target: 99, tab: 'sim' };
 const STORAGE_KEY = 'purifier-calc-v2';
 
-// 各场景使用到的参数（未使用的参数在界面上置灰）
+// 各场景使用到的参数（未使用的参数在界面上自动标为求解项）
 const TAB_FIELDS = {
   sim: ['perf', 'purity', 'vol', 'target'],
   maxVol: ['perf', 'purity', 'target'],
@@ -47,13 +47,21 @@ function getNightBudgetUl(volUl, purityInt, perf) {
   return { budgetUl: Math.floor(baseUl * mult), mult };
 }
 
-function gradeName(purityInt) {
-  if (purityInt >= 9990) return '纯水';
-  if (purityInt >= 9900) return '优质水';
-  if (purityInt >= 9800) return '基础水';
-  if (purityInt >= 9600) return '幽灵水';
-  if (purityInt >= 9000) return '铁锈水';
-  return '阴沟水';
+function getGradeMeta(purityInt) {
+  if (purityInt >= 9990) return { name: '纯水', cls: 'grade-pure' };
+  if (purityInt >= 9900) return { name: '优质水', cls: 'grade-high' };
+  if (purityInt >= 9800) return { name: '基础水', cls: 'grade-base' };
+  if (purityInt >= 9600) return { name: '幽灵水', cls: 'grade-ghost' };
+  if (purityInt >= 9000) return { name: '铁锈水', cls: 'grade-rust' };
+  return { name: '阴沟水', cls: 'grade-gutter' };
+}
+
+const gradeName = (purityInt) => getGradeMeta(purityInt).name;
+
+function setGradePill(el, purityInt) {
+  const { name, cls } = getGradeMeta(purityInt);
+  el.textContent = name;
+  el.className = `grade-pill ${cls}`;
 }
 
 const toInt = (pct) => Math.round(pct * 100);
@@ -62,7 +70,11 @@ const ml = (ul, d = 1) => `${(ul / 1000).toFixed(d)} mL`;
 /* ---------------- 状态 ---------------- */
 
 let state = { ...DEFAULTS };
-try { Object.assign(state, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')); } catch (e) { /* ignore */ }
+try {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  if (saved && typeof saved === 'object') Object.assign(state, saved);
+} catch (e) { /* ignore */ }
+if (!TAB_FIELDS[state.tab]) state.tab = DEFAULTS.tab;
 
 const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 
@@ -79,6 +91,17 @@ function readInputs() {
   state.target = readNum('targetInput', 99, 1, 100);
 }
 
+function syncRangeTracks() {
+  ['perfRange', 'purityRange', 'volRange'].forEach((id) => {
+    const el = $(id);
+    const min = parseFloat(el.min);
+    const max = parseFloat(el.max);
+    const val = parseFloat(el.value);
+    const pct = Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100));
+    el.style.setProperty('--pct', `${pct.toFixed(2)}%`);
+  });
+}
+
 function writeInputs() {
   $('perfInput').value = state.perf;
   $('perfRange').value = state.perf;
@@ -87,6 +110,7 @@ function writeInputs() {
   $('volInput').value = state.vol;
   $('volRange').value = state.vol;
   $('targetInput').value = (+state.target).toFixed(2);
+  syncRangeTracks();
 }
 
 /* ---------------- 场景计算 ---------------- */
@@ -97,7 +121,6 @@ function renderSim() {
   const waterUl = Math.round(volUl * purity / 100);
   const contamUl = volUl - waterUl;
   const inInt = toInt(purity);
-  const tInt = toInt(target);
 
   const { budgetUl } = getNightBudgetUl(volUl, inInt, perf);
   const removedUl = Math.min(budgetUl, contamUl);
@@ -106,9 +129,11 @@ function renderSim() {
   const needUl = Math.max(0, contamUl - Math.floor(volUl * (100 - target) / 100));
 
   $('simBefore').textContent = `${purity.toFixed(2)}%`;
-  $('simBeforeGrade').textContent = gradeName(inInt);
+  setGradePill($('simBeforeGrade'), inInt);
   $('simAfter').textContent = `${outPct.toFixed(2)}%`;
-  $('simAfterGrade').textContent = `${gradeName(outInt)} · +${(outPct - purity).toFixed(2)}%`;
+  setGradePill($('simAfterGrade'), outInt);
+  $('simAfterDelta').textContent = `+${(outPct - purity).toFixed(2)}%`;
+
   $('simBudget').textContent = ml(budgetUl);
   $('simRemoved').textContent = ml(removedUl);
   $('simLeft').textContent = ml(contamUl - removedUl);
@@ -116,7 +141,17 @@ function renderSim() {
   const ok = outPct + 0.005 >= target;
   const badge = $('simBadge');
   badge.className = 'badge ' + (ok ? 'ok' : 'no');
-  badge.textContent = ok ? '✅ 一晚达标' : '⏳ 一晚不够';
+  badge.textContent = ok ? '一晚达标' : '一晚不够';
+
+  // 单晚目标推进进度条
+  let progress = 100;
+  if (purity < target) {
+    progress = ok ? 100 : Math.min(100, Math.max(0, ((outPct - purity) / (target - purity)) * 100));
+  }
+  $('simProgressBar').style.width = `${progress.toFixed(1)}%`;
+  $('simProgressText').textContent = purity >= target
+    ? '已达标 (100%)'
+    : `${progress.toFixed(1)}%`;
 
   $('simSummary').innerHTML = ok
     ? `这桶 <strong>${vol.toFixed(2)} L</strong> 的水需去除 <strong>${ml(needUl)}</strong> 杂质，今晚额度 <strong>${ml(budgetUl)}</strong>，足够一晚达到 <strong>${target.toFixed(2)}%</strong>。`
@@ -124,7 +159,20 @@ function renderSim() {
 
   // 多晚推演
   const tbody = $('nightBody');
+  const tableWrap = $('nightTableWrap');
+  const emptyTip = $('nightEmptyTip');
   tbody.innerHTML = '';
+
+  if (purity >= target) {
+    tableWrap.classList.add('hidden');
+    emptyTip.classList.remove('hidden');
+    $('nightsText').textContent = '已达标';
+    return;
+  }
+
+  tableWrap.classList.remove('hidden');
+  emptyTip.classList.add('hidden');
+
   let w = waterUl, hitNight = null;
   for (let n = 1; n <= 8; n++) {
     const sInt = Math.floor(w * 10000 / volUl);
@@ -137,17 +185,22 @@ function renderSim() {
     const hit = hitNight === null && ePct + 0.005 >= target;
     if (hit) hitNight = n;
 
+    const meta = getGradeMeta(eInt);
     const tr = document.createElement('tr');
     if (hit) tr.className = 'hit';
-    tr.innerHTML = `<td>第 ${n} 晚</td><td>${sPct.toFixed(2)}%</td><td>${ml(b.budgetUl)} (${b.mult.toFixed(2)}x)</td>`
-      + `<td>${ml(rem)}</td><td>${ePct.toFixed(2)}%</td><td>${gradeName(eInt)}</td>`;
+    tr.innerHTML = `<td>第 ${n} 晚${hit ? ' · 达标' : ''}</td>`
+      + `<td>${sPct.toFixed(2)}%</td>`
+      + `<td>${ml(b.budgetUl)} (${b.mult.toFixed(2)}x)</td>`
+      + `<td>${ml(rem)}</td>`
+      + `<td>${ePct.toFixed(2)}%</td>`
+      + `<td><span class="grade-pill ${meta.cls}">${meta.name}</span></td>`;
     tbody.appendChild(tr);
     if (hitNight !== null || rem === 0) break;
   }
+
   $('nightsText').textContent = hitNight
     ? `第 ${hitNight} 晚达到 ${target.toFixed(2)}%`
-    : (purity >= target ? '已达标' : '8 晚内未达标');
-  if (purity >= target) $('nightBody').innerHTML = '';
+    : '8 晚内未达标';
 }
 
 let lastMaxVol = 0;
@@ -246,14 +299,19 @@ function renderMinPurity() {
 
 function renderUI() {
   // 标签页
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === state.tab));
+  document.querySelectorAll('.tab').forEach((t) => {
+    const active = t.dataset.tab === state.tab;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', String(active));
+  });
   document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === state.tab));
   // 参数置灰
   document.querySelectorAll('.field').forEach((f) => f.classList.toggle('off', !TAB_FIELDS[state.tab].includes(f.dataset.field)));
   // 快捷按钮高亮
   document.querySelectorAll('#volChips .chip').forEach((c) => c.classList.toggle('active', Math.abs(+c.dataset.v - state.vol) < 0.01));
   document.querySelectorAll('#targetChips .chip').forEach((c) => c.classList.toggle('active', Math.abs(+c.dataset.t - state.target) < 0.005));
-  $('purityGrade').textContent = gradeName(toInt(state.purity));
+  setGradePill($('purityGrade'), toInt(state.purity));
+  syncRangeTracks();
 }
 
 function update() {

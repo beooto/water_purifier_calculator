@@ -11,113 +11,225 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body class="antialiased min-h-screen">
-  <div class="max-w-6xl mx-auto px-4 py-6 md:py-8 space-y-6">
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <div class="relative max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
 
     <!-- 顶部 -->
-    <header class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-      <div>
-        <h1 class="text-2xl md:text-3xl font-bold tracking-tight">
-          <span class="text-[var(--primary)]">💧</span> 深空当铺 · 净水器计算器
-        </h1>
-        <p class="text-sm text-[var(--muted)] mt-1">设好参数 → 选一个场景 → 立即得到答案</p>
+    <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div class="flex items-center gap-3.5">
+        <div class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+            <path d="M9.5 14.5a3.5 3.5 0 0 0 3.5 3.5" opacity="0.7" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl md:text-2xl font-bold tracking-tight text-[var(--fg)]">
+              深空当铺 · 净水器计算器
+            </h1>
+            <span class="ver-pill hidden sm:inline-flex">MachinePurifier</span>
+          </div>
+          <p class="text-xs sm:text-sm text-[var(--muted)] mt-0.5">左侧调整参数，右侧即刻推演单晚结果与安全边界</p>
+        </div>
       </div>
-      <button id="resetBtn" class="btn-ghost self-start sm:self-auto">↺ 重置参数</button>
+
+      <button id="resetBtn" class="btn-ghost self-start sm:self-auto" type="button">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+          <path d="M3 3v5h5" />
+        </svg>
+        <span>重置参数</span>
+      </button>
     </header>
 
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
 
-      <!-- 左：参数 -->
-      <aside class="lg:col-span-4">
-        <div class="card p-5 space-y-5 lg:sticky lg:top-6">
-          <h2 class="section-title">① 参数设置</h2>
+      <!-- 左：参数面板 -->
+      <aside class="lg:col-span-4 lg:sticky lg:top-6">
+        <div class="card p-5 space-y-5">
+          <div class="flex items-center justify-between">
+            <h2 class="section-title">
+              <span class="step-badge">1</span>
+              <span>参数设置</span>
+            </h2>
+            <span class="text-[11px] text-[var(--muted)]">自动保存</span>
+          </div>
 
           <!-- 性能 -->
           <div class="field" data-field="perf">
             <div class="field-head">
               <label for="perfInput">性能加成</label>
-              <div class="num-wrap"><input id="perfInput" type="number" step="1" /><span>%</span></div>
+              <div class="num-wrap">
+                <input id="perfInput" type="number" step="1" />
+                <span>%</span>
+              </div>
             </div>
             <input id="perfRange" type="range" min="-80" max="400" step="1" />
-            <p class="hint">影响每晚可清理的杂质额度</p>
+            <div class="flex justify-between items-center text-[11px] text-[var(--muted)]">
+              <span>-80%</span>
+              <span class="hint">影响每晚清理额度</span>
+              <span>+400%</span>
+            </div>
           </div>
 
           <!-- 输入水纯度 -->
           <div class="field" data-field="purity">
             <div class="field-head">
-              <label for="purityInput">输入水纯度</label>
-              <div class="num-wrap"><input id="purityInput" type="number" step="0.01" min="90" max="100" /><span>%</span></div>
+              <div class="flex items-center gap-2">
+                <label for="purityInput">输入水纯度</label>
+                <span class="auto-badge">自动求解</span>
+              </div>
+              <div class="num-wrap">
+                <input id="purityInput" type="number" step="0.01" min="90" max="100" />
+                <span>%</span>
+              </div>
             </div>
-            <input id="purityRange" type="range" min="90" max="100" step="0.01" />
-            <div class="flex justify-between text-xs text-[var(--muted)]">
-              <span>90%</span><span id="purityGrade" class="text-[var(--fg)] font-medium"></span><span>100%</span>
+            <div class="space-y-1.5">
+              <input id="purityRange" type="range" min="90" max="100" step="0.01" />
+              <div class="purity-spectrum" title="水质等级纯度区间色带（90% ~ 100%）" aria-hidden="true"></div>
             </div>
-            <p class="field-off-tip">本场景由计算得出，无需填写</p>
+            <div class="flex justify-between items-center text-xs text-[var(--muted)]">
+              <span class="tabular-nums">90%</span>
+              <span id="purityGrade" class="grade-pill"></span>
+              <span class="tabular-nums">100%</span>
+            </div>
+            <p class="field-off-tip">本场景由右侧计算得出，无需手动输入</p>
           </div>
 
           <!-- 水量 -->
           <div class="field" data-field="vol">
             <div class="field-head">
-              <label for="volInput">输入水量</label>
-              <div class="num-wrap"><input id="volInput" type="number" step="0.1" min="0.1" /><span>L</span></div>
+              <div class="flex items-center gap-2">
+                <label for="volInput">输入水量</label>
+                <span class="auto-badge">自动求解</span>
+              </div>
+              <div class="num-wrap">
+                <input id="volInput" type="number" step="0.1" min="0.1" />
+                <span>L</span>
+              </div>
             </div>
             <input id="volRange" type="range" min="0.5" max="50" step="0.1" />
             <div class="chip-row" id="volChips">
-              <button class="chip" data-v="3">3L 水罐</button>
-              <button class="chip" data-v="6">6L 水桶</button>
-              <button class="chip" data-v="20">20L 储水罐</button>
-              <button class="chip" data-v="50">50L 强化罐</button>
+              <button class="chip" type="button" data-v="3">3L 水罐</button>
+              <button class="chip" type="button" data-v="6">6L 水桶</button>
+              <button class="chip" type="button" data-v="20">20L 储水罐</button>
+              <button class="chip" type="button" data-v="50">50L 强化罐</button>
             </div>
-            <p class="field-off-tip">本场景由计算得出，无需填写</p>
+            <p class="field-off-tip">本场景由右侧计算得出，无需手动输入</p>
           </div>
 
           <!-- 目标 -->
           <div class="field" data-field="target">
             <div class="field-head">
               <label for="targetInput">目标纯度</label>
-              <div class="num-wrap"><input id="targetInput" type="number" step="0.01" min="90" max="100" /><span>%</span></div>
+              <div class="num-wrap">
+                <input id="targetInput" type="number" step="0.01" min="90" max="100" />
+                <span>%</span>
+              </div>
             </div>
             <div class="chip-row" id="targetChips">
-              <button class="chip" data-t="98">基础水 98%</button>
-              <button class="chip" data-t="99">优质水 99%</button>
-              <button class="chip" data-t="99.9">纯水 99.9%</button>
+              <button class="chip" type="button" data-t="98">基础水 98%</button>
+              <button class="chip" type="button" data-t="99">优质水 99%</button>
+              <button class="chip" type="button" data-t="99.9">纯水 99.9%</button>
             </div>
           </div>
         </div>
       </aside>
 
-      <!-- 右：场景 -->
+      <!-- 右：场景面板 -->
       <main class="lg:col-span-8 space-y-5">
-        <div class="card p-1.5 grid grid-cols-3 gap-1.5" id="tabs">
-          <button class="tab" data-tab="sim"><b>🔬 净化模拟</b><small>这桶水明早会怎样？</small></button>
-          <button class="tab" data-tab="maxVol"><b>🎯 最大水量</b><small>最多装多少能一晚达标？</small></button>
-          <button class="tab" data-tab="minPurity"><b>🧮 最低入水纯度</b><small>水要多干净才能一晚达标？</small></button>
+        <!-- 分段场景切换 -->
+        <div class="card p-1.5 grid grid-cols-3 gap-1.5" id="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-tab="sim">
+            <span class="tab-title">
+              <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 3h6" /><path d="M10 3v5.4a2 2 0 0 1-.55 1.38L4.4 15.14A2.5 2.5 0 0 0 6.2 19.5h11.6a2.5 2.5 0 0 0 1.8-4.36l-5.05-5.36A2 2 0 0 1 14 8.4V3" />
+                <path d="M6.5 14.5h11" opacity="0.7" />
+              </svg>
+              <b>净化模拟</b>
+            </span>
+            <small>这桶水明早会怎样？</small>
+          </button>
+
+          <button class="tab" type="button" role="tab" data-tab="maxVol">
+            <span class="tab-title">
+              <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="5" />
+                <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+              </svg>
+              <b>最大水量</b>
+            </span>
+            <small>最多装多少一晚达标？</small>
+          </button>
+
+          <button class="tab" type="button" role="tab" data-tab="minPurity">
+            <span class="tab-title">
+              <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12h4l3-7 4 14 3-7h4" />
+              </svg>
+              <b>最低入水纯度</b>
+            </span>
+            <small>水要多干净一晚达标？</small>
+          </button>
         </div>
 
         <!-- 场景：模拟 -->
-        <section class="panel card p-6 space-y-5" data-panel="sim">
-          <div class="flex items-start justify-between gap-3">
+        <section class="panel card p-5 sm:p-6 space-y-5" data-panel="sim">
+          <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 class="section-title">② 净化模拟</h2>
-              <p class="hint mt-1">根据性能、纯度、水量，推算睡一觉后的结果</p>
+              <h2 class="section-title">
+                <span class="step-badge">2</span>
+                <span>净化模拟</span>
+              </h2>
+              <p class="hint mt-1">根据性能、入水纯度与水量，推算睡一觉后的纯度变化</p>
             </div>
             <span id="simBadge" class="badge"></span>
           </div>
 
-          <div class="flex items-center gap-4">
+          <!-- 今晚前 -> 明早对比 -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <div class="stat flex-1">
-              <span class="stat-label">今晚前</span>
+              <div class="flex items-center justify-between gap-2">
+                <span class="stat-label">今晚入水</span>
+                <span id="simBeforeGrade" class="grade-pill"></span>
+              </div>
               <span id="simBefore" class="stat-value"></span>
-              <span id="simBeforeGrade" class="stat-sub"></span>
             </div>
-            <div class="text-2xl text-[var(--muted)]">→</div>
+
+            <div class="flow-arrow self-center" aria-hidden="true">
+              <svg class="w-4 h-4 sm:rotate-0 rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14" /><path d="m13 5 7 7-7 7" />
+              </svg>
+            </div>
+
             <div class="stat flex-1 stat-accent">
-              <span class="stat-label">明早</span>
-              <span id="simAfter" class="stat-value"></span>
-              <span id="simAfterGrade" class="stat-sub"></span>
+              <div class="flex items-center justify-between gap-2">
+                <span class="stat-label">明早出水</span>
+                <span id="simAfterGrade" class="grade-pill"></span>
+              </div>
+              <div class="flex items-baseline justify-between gap-2">
+                <span id="simAfter" class="stat-value"></span>
+                <span id="simAfterDelta" class="delta-pill"></span>
+              </div>
             </div>
           </div>
 
-          <div class="grid grid-cols-3 gap-3 text-center">
+          <!-- 单晚达标进度条 -->
+          <div class="progress-card">
+            <div class="flex justify-between items-center text-xs mb-1.5">
+              <span class="text-[var(--muted)]">单晚目标推进度</span>
+              <span id="simProgressText" class="font-semibold tabular-nums"></span>
+            </div>
+            <div class="progress-track">
+              <div id="simProgressBar" class="progress-fill" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- 三项关键数值 -->
+          <div class="grid grid-cols-3 gap-2.5 sm:gap-3 text-center">
             <div class="mini"><span>今晚清理额度</span><b id="simBudget"></b></div>
             <div class="mini"><span>实际去除杂质</span><b id="simRemoved"></b></div>
             <div class="mini"><span>剩余杂质</span><b id="simLeft"></b></div>
@@ -125,82 +237,156 @@
 
           <p id="simSummary" class="summary"></p>
 
-          <div>
-            <div class="flex justify-between items-center mb-2">
-              <span class="text-sm font-semibold">📅 多晚推演</span>
-              <span id="nightsText" class="text-xs text-[var(--muted)]"></span>
+          <!-- 多晚推演 -->
+          <div class="space-y-2.5 pt-1">
+            <div class="flex justify-between items-center">
+              <span class="text-sm font-semibold flex items-center gap-2">
+                <svg class="w-4 h-4 text-[var(--primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4" /><path d="M8 2v4" /><path d="M3 10h18" />
+                </svg>
+                多晚推演
+              </span>
+              <span id="nightsText" class="text-xs font-medium text-[var(--muted)] tabular-nums"></span>
             </div>
-            <div class="overflow-x-auto rounded-xl border border-[var(--border)]">
-              <table class="w-full text-xs text-left">
+
+            <div id="nightTableWrap" class="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--table-bg)]">
+              <table class="w-full text-xs text-left tabular-nums">
                 <thead class="bg-[var(--surface)] text-[var(--muted)]">
-                  <tr><th>晚</th><th>开始纯度</th><th>额度 (倍率)</th><th>去除</th><th>结束纯度</th><th>等级</th></tr>
+                  <tr>
+                    <th>晚次</th>
+                    <th>开始纯度</th>
+                    <th>额度 (倍率)</th>
+                    <th>去除</th>
+                    <th>结束纯度</th>
+                    <th>等级</th>
+                  </tr>
                 </thead>
                 <tbody id="nightBody"></tbody>
               </table>
+            </div>
+
+            <div id="nightEmptyTip" class="hidden empty-tip">
+              当前入水已达到或超过目标纯度，无需额外过夜净化。
             </div>
           </div>
         </section>
 
         <!-- 场景：最大水量 -->
-        <section class="panel card p-6 space-y-5" data-panel="maxVol">
+        <section class="panel card p-5 sm:p-6 space-y-5" data-panel="maxVol">
           <div>
-            <h2 class="section-title">② 最大安全水量</h2>
-            <p class="hint mt-1">已知性能、输入纯度、目标纯度，求一晚必定达标的最大水量</p>
+            <h2 class="section-title">
+              <span class="step-badge">2</span>
+              <span>最大安全水量</span>
+            </h2>
+            <p class="hint mt-1">已知性能、输入纯度与目标纯度，求一晚必定达标的最大装水量</p>
           </div>
+
           <div class="hero">
-            <span class="stat-label">最多可装入</span>
-            <div><span id="mvValue" class="hero-value"></span> <span id="mvUnit" class="text-lg text-[var(--muted)]">L</span></div>
-            <span id="mvSub" class="stat-sub"></span>
+            <span class="stat-label">一晚稳过最多可装入</span>
+            <div class="flex items-baseline justify-center gap-1.5 my-1">
+              <span id="mvValue" class="hero-value"></span>
+              <span id="mvUnit" class="text-lg font-semibold text-[var(--muted)]">L</span>
+            </div>
+            <span id="mvSub" class="stat-sub tabular-nums"></span>
           </div>
+
           <div class="grid grid-cols-2 gap-3 text-center">
             <div class="mini"><span>每升需去除杂质</span><b id="mvPerL"></b></div>
             <div class="mini"><span>满载 (≥10L) 单晚额度</span><b id="mvBudget"></b></div>
           </div>
+
           <div class="flex flex-col sm:flex-row sm:items-center gap-3">
             <p id="mvSummary" class="summary flex-1"></p>
-            <button id="mvApply" class="btn-primary shrink-0">用这个水量去模拟 →</button>
+            <button id="mvApply" class="btn-primary shrink-0" type="button">
+              <span>用这个水量去模拟</span>
+              <svg class="w-4 h-4 arrow-shift" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14" /><path d="m13 5 7 7-7 7" />
+              </svg>
+            </button>
           </div>
         </section>
 
         <!-- 场景：最低入水纯度 -->
-        <section class="panel card p-6 space-y-5" data-panel="minPurity">
+        <section class="panel card p-5 sm:p-6 space-y-5" data-panel="minPurity">
           <div>
-            <h2 class="section-title">② 最低入水纯度</h2>
-            <p class="hint mt-1">已知性能、水量、目标纯度，求输入水至少要多纯才能一晚达标</p>
+            <h2 class="section-title">
+              <span class="step-badge">2</span>
+              <span>最低入水纯度</span>
+            </h2>
+            <p class="hint mt-1">已知性能、水量与目标纯度，求输入水至少要多纯才能一晚达标</p>
           </div>
+
           <div class="hero">
             <span class="stat-label">输入水纯度至少需要</span>
-            <div><span id="mpValue" class="hero-value"></span> <span id="mpUnit" class="text-lg text-[var(--muted)]">%</span></div>
-            <span id="mpSub" class="stat-sub"></span>
+            <div class="flex items-baseline justify-center gap-1.5 my-1">
+              <span id="mpValue" class="hero-value"></span>
+              <span id="mpUnit" class="text-lg font-semibold text-[var(--muted)]">%</span>
+            </div>
+            <span id="mpSub" class="stat-sub tabular-nums"></span>
           </div>
+
           <div class="grid grid-cols-2 gap-3 text-center">
             <div class="mini"><span>该纯度下今晚额度</span><b id="mpBudget"></b></div>
             <div class="mini"><span>需去除杂质</span><b id="mpNeed"></b></div>
           </div>
+
           <div class="flex flex-col sm:flex-row sm:items-center gap-3">
             <p id="mpSummary" class="summary flex-1"></p>
-            <button id="mpApply" class="btn-primary shrink-0">用这个纯度去模拟 →</button>
+            <button id="mpApply" class="btn-primary shrink-0" type="button">
+              <span>用这个纯度去模拟</span>
+              <svg class="w-4 h-4 arrow-shift" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14" /><path d="m13 5 7 7-7 7" />
+              </svg>
+            </button>
           </div>
         </section>
 
+        <!-- 公式与水质标准折叠卡片 -->
         <details class="card p-5 text-xs text-[var(--muted)] group">
-          <summary class="cursor-pointer font-semibold text-sm text-[var(--fg)] flex justify-between">
-            📌 计算公式说明 <span class="group-open:rotate-180 transition-transform">▼</span>
+          <summary class="cursor-pointer font-semibold text-sm text-[var(--fg)] flex items-center justify-between list-none">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-[var(--primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" />
+              </svg>
+              计算公式与水质标准说明
+            </span>
+            <svg class="w-4 h-4 text-[var(--muted)] group-open:rotate-180 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
           </summary>
-          <div class="mt-3 space-y-1.5 leading-relaxed">
-            <p>• <b class="text-[var(--fg)]">基础额度</b> = min(水量, 10L) × 3 mL/L + 25 mL（10L 及以上固定 55 mL）</p>
-            <p>• <b class="text-[var(--fg)]">今晚额度</b> = 基础额度 × (污秽系数 + 性能加成%) × 1.25</p>
-            <p>• <b class="text-[var(--fg)]">污秽系数</b>：水越脏系数越高（98%→1x，94%→2x，88.5%→5x，线性插值）</p>
-            <p>• <b class="text-[var(--fg)]">水质等级</b>：≥99.9% 纯水，≥99% 优质水，≥98% 基础水，≥96% 幽灵水，≥90% 铁锈水</p>
-            <p>• 本计算器不考虑机器纯度上限（默认已有足够质量加成）。</p>
+
+          <div class="mt-4 pt-3 border-t border-[var(--border)] space-y-3 leading-relaxed">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              <div class="formula-box">
+                <span class="text-[var(--fg)] font-semibold">基础清理额度</span>
+                <p class="mt-0.5 tabular-nums">min(水量, 10L) × 3 mL/L + 25 mL（10L 及以上固定 55 mL）</p>
+              </div>
+              <div class="formula-box">
+                <span class="text-[var(--fg)] font-semibold">今晚清理额度</span>
+                <p class="mt-0.5">基础额度 × (污秽系数 + 性能加成%) × 1.25</p>
+              </div>
+            </div>
+
+            <p>• <b class="text-[var(--fg)]">污秽系数</b>：水越脏系数越高（98%→1x，94%→2x，88.5%→5x，分段线性插值）。</p>
+            <p>• <b class="text-[var(--fg)]">纯度上限说明</b>：本计算器默认机器已拥有足够的质量加成，不考虑质量不足导致的纯度上限。</p>
+
+            <div class="flex flex-wrap items-center gap-1.5 pt-1">
+              <span class="text-[var(--fg)] font-semibold mr-1">水质等级：</span>
+              <span class="grade-pill grade-pure">≥99.9% 纯水</span>
+              <span class="grade-pill grade-high">≥99.0% 优质水</span>
+              <span class="grade-pill grade-base">≥98.0% 基础水</span>
+              <span class="grade-pill grade-ghost">≥96.0% 幽灵水</span>
+              <span class="grade-pill grade-rust">≥90.0% 铁锈水</span>
+              <span class="grade-pill grade-gutter">&lt;90.0% 阴沟水</span>
+            </div>
           </div>
         </details>
       </main>
     </div>
 
-    <footer class="text-center text-xs text-[var(--muted)] space-y-1 pt-2">
+    <footer class="text-center text-xs text-[var(--muted)] space-y-1 pt-2 pb-4">
       <p>本工具为玩家自制的非官方辅助工具，计算结果仅供参考，与游戏开发商无关。</p>
-      <p>纯前端静态页面 · 所有计算均在本地浏览器中完成</p>
+      <p class="opacity-80">纯前端静态页面 · 所有计算均在本地浏览器中实时完成</p>
     </footer>
   </div>
 
